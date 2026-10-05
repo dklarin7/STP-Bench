@@ -70,6 +70,41 @@ class CigarInferenceEncoder(InferenceEncoder):
         return self.model(x)
 
 
+class OpenMidnightInferenceEncoder(InferenceEncoder):
+    """OpenMidnight / Phase 0 teacher export (DINOv2 ViT-g/14, 4 registers), loaded through the
+    OpenMidnight repo's eva_openmidnight.OpenMidnightEncoder.
+
+    The API passes only an encoder NAME, so the checkpoint is resolved from it:
+        openmidnight_<tag>  ->  $OPENMIDNIGHT_CKPT_DIR/<tag>.pth     (default ~/checkpoints)
+    Pooling: OPENMIDNIGHT_POOL=cls (1536-d, OpenMidnight's published protocol, default) or
+    concat (cat[CLS, mean patch], 3072-d). Repo location: OPENMIDNIGHT_ROOT (default ~/OpenMidnight).
+    Transforms match the other encoders here: resize to 224, ImageNet mean/std.
+    """
+
+    def __init__(self, name):
+        self.name = name
+        super().__init__(weights_path=None)
+
+    def _build(self, weights_path=None, **build_kwargs):
+        root = os.environ.get("OPENMIDNIGHT_ROOT", os.path.expanduser("~/OpenMidnight"))
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        from eva_openmidnight import OpenMidnightEncoder
+
+        tag = self.name.split("openmidnight_", 1)[1]
+        ckpt_dir = os.environ.get("OPENMIDNIGHT_CKPT_DIR", os.path.expanduser("~/checkpoints"))
+        ckpt = os.path.join(ckpt_dir, f"{tag}.pth")
+        if not os.path.isfile(ckpt):
+            raise FileNotFoundError(f"{self.name}: expected checkpoint at {ckpt}")
+        pool = os.environ.get("OPENMIDNIGHT_POOL", "cls")
+        model = OpenMidnightEncoder(ckpt, pool=pool)
+        print(f"[openmidnight] {self.name}: {ckpt}  pool={pool}  dim={model.embed_dim}")
+        eval_transform = get_eval_transforms((0.485, 0.456, 0.406), (0.229, 0.224, 0.225), target_img_size=224)
+        return model, eval_transform, torch.float16
+
+    def forward(self, x):
+        return self.model(x)
+
 def post_collate_fn(batch):
     if batch["imgs"].dim() == 5:
         assert batch["imgs"].size(0) == 1
@@ -154,6 +189,8 @@ def main(args, device):
     print(f"Extracting features with {args.patch_encoder} ({len(ids)} samples)")
     if args.patch_encoder == 'cigar':
         encoder = CigarInferenceEncoder()
+    elif args.patch_encoder.startswith('openmidnight_'):
+        encoder = OpenMidnightInferenceEncoder(args.patch_encoder)
     else:
         encoder = encoder_factory(args.patch_encoder, weights_path=args.patch_encoder_ckpt_path)
 
@@ -228,6 +265,7 @@ if __name__ == '__main__':
             'hoptimus0', 'hoptimus1', 'phikon_v2', 'conch_v15', 'musk', 'hibou_l',
             'kaiko-vits8', 'kaiko-vits16', 'kaiko-vitb8', 'kaiko-vitb16',
             'kaiko-vitl14', 'lunit-vits8', 'midnight12k', 'cigar',
+            'openmidnight_teacher_300000', 'openmidnight_template_300k',
         ],
     )
     parser.add_argument('--batch_size', type=int, default=1024)
