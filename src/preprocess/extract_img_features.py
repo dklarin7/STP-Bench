@@ -72,7 +72,7 @@ class CigarInferenceEncoder(InferenceEncoder):
 
 class OpenMidnightInferenceEncoder(InferenceEncoder):
     """OpenMidnight / Phase 0 teacher export (DINOv2 ViT-g/14, 4 registers), loaded through the
-    OpenMidnight repo's eva_openmidnight.OpenMidnightEncoder.
+    OpenMidnight repo's openmidnight_probe.loader (the probe suite's loader).
 
     The API passes only an encoder NAME, so the checkpoint is resolved from it:
         openmidnight_<tag>  ->  $OPENMIDNIGHT_CKPT_DIR/<tag>.pth     (default ~/checkpoints)
@@ -89,7 +89,9 @@ class OpenMidnightInferenceEncoder(InferenceEncoder):
         root = os.environ.get("OPENMIDNIGHT_ROOT", os.path.expanduser("~/OpenMidnight"))
         if root not in sys.path:
             sys.path.insert(0, root)
-        from eva_openmidnight import OpenMidnightEncoder
+        # openmidnight_probe.loader builds a plain ViT (no xformers) at the export's own
+        # 224-px grid and loads it strictly; the same path the probe suite scored these exports with.
+        from openmidnight_probe.loader import build_model_from_teacher
 
         tag = self.name.split("openmidnight_", 1)[1]
         ckpt_dir = os.environ.get("OPENMIDNIGHT_CKPT_DIR", os.path.expanduser("~/checkpoints"))
@@ -97,8 +99,25 @@ class OpenMidnightInferenceEncoder(InferenceEncoder):
         if not os.path.isfile(ckpt):
             raise FileNotFoundError(f"{self.name}: expected checkpoint at {ckpt}")
         pool = os.environ.get("OPENMIDNIGHT_POOL", "cls")
-        model = OpenMidnightEncoder(ckpt, pool=pool)
-        print(f"[openmidnight] {self.name}: {ckpt}  pool={pool}  dim={model.embed_dim}")
+        if pool not in ("cls", "concat"):
+            raise ValueError(f"OPENMIDNIGHT_POOL must be cls or concat, got {pool!r}")
+        ck = torch.load(ckpt, map_location="cpu", weights_only=False)
+        backbone = build_model_from_teacher(ck["teacher"])
+        del ck
+
+        class _Pooled(nn.Module):
+            def __init__(self, backbone, pool):
+                super().__init__()
+                self.backbone, self.pool = backbone, pool
+
+            def forward(self, x):
+                out = self.backbone(x)
+                cls = out["x_norm_clstoken"]
+                return cls if self.pool == "cls" else torch.cat([cls, out["x_norm_patchtokens"].mean(1)], dim=-1)
+
+        model = _Pooled(backbone, pool)
+        dim = backbone.embed_dim * (1 if pool == "cls" else 2)
+        print(f"[openmidnight] {self.name}: {ckpt}  pool={pool}  dim={dim}")
         eval_transform = get_eval_transforms((0.485, 0.456, 0.406), (0.229, 0.224, 0.225), target_img_size=224)
         return model, eval_transform, torch.float16
 
