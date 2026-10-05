@@ -284,7 +284,7 @@ if __name__ == '__main__':
             'hoptimus0', 'hoptimus1', 'phikon_v2', 'conch_v15', 'musk', 'hibou_l',
             'kaiko-vits8', 'kaiko-vits16', 'kaiko-vitb8', 'kaiko-vitb16',
             'kaiko-vitl14', 'lunit-vits8', 'midnight12k', 'cigar',
-            'openmidnight_teacher_300000', 'openmidnight_template_300k',
+            'openmidnight_teacher_300000', 'openmidnight_template_300k', 'openmidnight_teacher_50000',
         ],
     )
     parser.add_argument('--batch_size', type=int, default=1024)
