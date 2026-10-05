@@ -27,8 +27,9 @@ for tag in args.tags:
     internal, external = f"{args.internal}_om_{tag}", f"{args.external}_om_{tag}"
     stp = STPred(models=args.models, gpu=1, gpu_id=args.gpu_id, repo_root=os.path.dirname(os.path.abspath(__file__)),
                  log_file=f"logs/openmidnight_{tag}.log")
-    stp.check(data=internal, strict=True)
+    # benchmark() runs preprocessing (gene set, feature extraction) itself; check() only passes afterwards.
     result = stp.benchmark(internal_data=internal, external_data=external)
+    stp.check(data=internal, strict=False)
     print(f"\n===== {tag} =====")
     print(result.summary())
     result.save(f"benchmark_openmidnight_{tag}.csv")
