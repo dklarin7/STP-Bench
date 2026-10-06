@@ -58,11 +58,15 @@ Several minutes: Python 3.11, torch 2.3.1+cu118 (no Blackwell/sm_120 kernels; us
 ```
 
 ```bash
-sudo apt-get install -y ca-certificates
+sudo apt-get install -y ca-certificates && sudo update-ca-certificates --fresh && ls -la /etc/ssl/certs/ca-certificates.crt
 ```
 
-(torchmetrics < 1.5 lacks `MeanAbsoluteError(num_outputs=...)`, which their trainer calls; without
-ca-certificates the Hugging Face xet downloader fails with "No CA certificates were loaded".)
+(torchmetrics < 1.5 lacks `MeanAbsoluteError(num_outputs=...)`, which their trainer calls. The
+Hugging Face xet downloader is a Rust client that reads the system bundle at
+`/etc/ssl/certs/ca-certificates.crt`; on Ubuntu minimal the package can be present without that
+bundle ever having been generated, and the download then fails with "No CA certificates were
+loaded from the system". `update-ca-certificates --fresh` writes it; expect a file of a few hundred
+KB. If it still fails, prefix the download with `SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt`.)
 
 ## 8. Verify the environment sees the GPU
 
