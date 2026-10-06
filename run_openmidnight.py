@@ -32,4 +32,8 @@ for tag in args.tags:
     stp.check(data=internal, strict=False)
     print(f"\n===== {tag} =====")
     print(result.summary())
-    result.save(f"benchmark_openmidnight_{tag}.csv")
+
+# BenchmarkResult.save() writes an empty file when the payload carries no per-fold records (it did
+# for every run here); the per-fold metrics.csv files on disk are the record of truth.
+import subprocess
+subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "collect_openmidnight_metrics.py")], check=False)
