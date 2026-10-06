@@ -53,6 +53,20 @@ def ensure_config(data: str, tag: str, stp_data: str) -> Path:
     return dst
 
 
+def prepare_geneset(data: str, stp_data: str) -> None:
+    """Compute the group's HVG gene set once, serially. Each benchmark() would otherwise recompute
+    it, and three concurrent copies on a 157K-spot group got OOM-killed. Same command the API runs."""
+    ns, name = data.split("/")
+    out_dir = ROOT / "input" / ns / name
+    if (out_dir / "hmhvg_200genes.json").exists():
+        return
+    cmd = [sys.executable, str(ROOT / "src" / "preprocess" / "get_geneset.py"), "--st_dir", f"{stp_data}/st",
+           "--output_dir", str(out_dir), "--id_path", str(out_dir / "ids.csv"),
+           "--n_top_hvg", "50", "--n_top_heg", "1000", "--n_top_hmhvg", "200", "--method", "HMHVG"]
+    print(f"{time.strftime('%H:%M:%S')} geneset {data}", flush=True)
+    subprocess.run(cmd, check=True, cwd=ROOT)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--pairs", nargs="+", default=[f"{a}:{b}" for a, b in PAIRS], help="internal:external, e.g. wustl/BRCA:hest/BRCA")
@@ -63,12 +77,18 @@ def main():
     args = p.parse_args()
 
     jobs = []
+    groups = []
     for pair in args.pairs:
         internal, external = pair.split(":")
+        for g in (internal, external):
+            if g not in groups:
+                groups.append(g)
         for tag in args.tags:
             ensure_config(internal, tag, args.stp_data)
             ensure_config(external, tag, args.stp_data)
             jobs.append((internal, external, tag))
+    for g in groups:  # one at a time: this is the RAM-heavy step
+        prepare_geneset(g, args.stp_data)
     (ROOT / "logs" / "queue").mkdir(parents=True, exist_ok=True)
     print(f"{len(jobs)} jobs, {args.concurrency} at a time")
 
