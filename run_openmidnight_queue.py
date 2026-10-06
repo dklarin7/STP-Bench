@@ -108,10 +108,11 @@ def main():
             gpu = min(gpus, key=lambda g: gpu_load[g])  # least-loaded card
             gpu_load[gpu] += 1
             log = ROOT / "logs" / "queue" / f"{internal.replace('/', '_')}__{external.replace('/', '_')}__{tag}.out"
+            # STP-Bench sets CUDA_VISIBLE_DEVICES itself from gpu_id (an ABSOLUTE card id) for both
+            # extraction and training, so an env var here is overwritten; pass the card as --gpu_id.
             cmd = [sys.executable, str(ROOT / "run_openmidnight.py"), "--tags", tag, "--internal", internal,
-                   "--external", external, "--models", *args.models]
-            env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu)}  # run_openmidnight's gpu_id=0 is then this card
-            proc = subprocess.Popen(cmd, stdout=open(log, "w"), stderr=subprocess.STDOUT, cwd=ROOT, env=env)
+                   "--external", external, "--models", *args.models, "--gpu_id", str(gpu)]
+            proc = subprocess.Popen(cmd, stdout=open(log, "w"), stderr=subprocess.STDOUT, cwd=ROOT)
             running.append((proc, internal, external, tag, log, gpu))
             launched += 1
             print(f"{time.strftime('%H:%M:%S')} start  {internal} -> {external}  {tag}  gpu={gpu}  (log {log.name})", flush=True)
