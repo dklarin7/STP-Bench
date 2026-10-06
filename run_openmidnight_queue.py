@@ -73,6 +73,7 @@ def main():
     p.add_argument("--tags", nargs="+", default=TAGS)
     p.add_argument("--models", nargs="+", default=["LinearProb"])
     p.add_argument("--concurrency", type=int, default=3)
+    p.add_argument("--gpus", default="0", help="GPU ids to spread jobs over, e.g. '0-7' or '0,2,4'; each job gets one")
     p.add_argument("--stp_data", default=os.environ.get("STP_DATA", os.path.expanduser("~/stp_data")))
     args = p.parse_args()
 
@@ -92,21 +93,33 @@ def main():
     (ROOT / "logs" / "queue").mkdir(parents=True, exist_ok=True)
     print(f"{len(jobs)} jobs, {args.concurrency} at a time")
 
+    gpus = []
+    for part in args.gpus.split(","):
+        lo, _, hi = part.partition("-")
+        gpus.extend(range(int(lo), int(hi or lo) + 1))
+    # A ViT-g extraction holds ~16 GB; keep at most 2 jobs per 96 GB card (4 per 40 GB card is too many).
+    gpu_load = {g: 0 for g in gpus}
     running = []
     failures = []
+    launched = 0
     while jobs or running:
         while jobs and len(running) < args.concurrency:
             internal, external, tag = jobs.pop(0)
+            gpu = min(gpus, key=lambda g: gpu_load[g])  # least-loaded card
+            gpu_load[gpu] += 1
             log = ROOT / "logs" / "queue" / f"{internal.replace('/', '_')}__{external.replace('/', '_')}__{tag}.out"
             cmd = [sys.executable, str(ROOT / "run_openmidnight.py"), "--tags", tag, "--internal", internal,
                    "--external", external, "--models", *args.models]
-            proc = subprocess.Popen(cmd, stdout=open(log, "w"), stderr=subprocess.STDOUT, cwd=ROOT)
-            running.append((proc, internal, external, tag, log))
-            print(f"{time.strftime('%H:%M:%S')} start  {internal} -> {external}  {tag}  (log {log.name})", flush=True)
+            env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu)}  # run_openmidnight's gpu_id=0 is then this card
+            proc = subprocess.Popen(cmd, stdout=open(log, "w"), stderr=subprocess.STDOUT, cwd=ROOT, env=env)
+            running.append((proc, internal, external, tag, log, gpu))
+            launched += 1
+            print(f"{time.strftime('%H:%M:%S')} start  {internal} -> {external}  {tag}  gpu={gpu}  (log {log.name})", flush=True)
         for item in list(running):
-            proc, internal, external, tag, log = item
+            proc, internal, external, tag, log, gpu = item
             if proc.poll() is not None:
                 running.remove(item)
+                gpu_load[gpu] -= 1
                 status = "done " if proc.returncode == 0 else f"FAIL({proc.returncode})"
                 print(f"{time.strftime('%H:%M:%S')} {status} {internal} -> {external}  {tag}", flush=True)
                 if proc.returncode != 0:
