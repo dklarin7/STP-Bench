@@ -30,6 +30,11 @@ outside that comparison axis — see
 - **2026-07-17** — Added **[DeepSpotM](https://www.medrxiv.org/content/10.64898/2026.06.19.26356060v1)** as a new zero-shot pretrained model.
 - **2026-05-28** — Initial release.
 
+## OpenMidnight fork: machine requirements
+
+Use a machine with **128 GB RAM or more**; the gene-set step needs it on the larger training groups.
+Setup steps: `OPENMIDNIGHT_SETUP.md`. Results: `OPENMIDNIGHT_RESULTS.md`.
+
 ## Installation
 
 ```bash

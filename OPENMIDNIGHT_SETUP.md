@@ -94,6 +94,13 @@ cd ~/STP-Bench && .stpbench/bin/hf download nexgem/STP-Bench --repo-type dataset
 
 Rerunning the same command resumes. If xet still fails, prefix with `HF_HUB_DISABLE_XET=1`.
 
+**Alternative, from the bucket** (the same files were copied to `gs://wsi-brb/stp_bench_data` on
+2026-10-06; in-region, minutes rather than hours, no HF login needed):
+
+```bash
+gcloud storage rsync -r gs://wsi-brb/stp_bench_data ~/stp_data
+```
+
 ## 11. OpenMidnight repo (the loader the encoder uses)
 
 ```bash
