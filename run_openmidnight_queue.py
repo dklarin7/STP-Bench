@@ -60,7 +60,9 @@ def prepare_geneset(data: str, stp_data: str) -> None:
     out_dir = ROOT / "input" / ns / name
     if (out_dir / "hmhvg_200genes.json").exists():
         return
-    cmd = [sys.executable, str(ROOT / "src" / "preprocess" / "get_geneset.py"), "--st_dir", f"{stp_data}/st",
+    # scripts/get_geneset_lowmem.py: same selection as src/preprocess/get_geneset.py, streamed one
+    # slide at a time (upstream needs > 83 GB on the 47-slide BRCA group and is OOM-killed).
+    cmd = [sys.executable, str(ROOT / "scripts" / "get_geneset_lowmem.py"), "--st_dir", f"{stp_data}/st",
            "--output_dir", str(out_dir), "--id_path", str(out_dir / "ids.csv"),
            "--n_top_hvg", "50", "--n_top_heg", "1000", "--n_top_hmhvg", "200", "--method", "HMHVG"]
     print(f"{time.strftime('%H:%M:%S')} geneset {data}", flush=True)
