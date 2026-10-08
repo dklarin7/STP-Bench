@@ -43,6 +43,15 @@ def ensure_config(data: str, tag: str, stp_data: str) -> Path:
         cfg = yaml.safe_load(text)
     else:
         cfg = yaml.safe_load(src.read_text())
+    # Folds can't exceed slides: hest/GBM (3 slides) inherited num_k 4 from its sibling and
+    # split_data.py failed for every encoder. Cap TRAINING.num_k at the group's slide count.
+    ids_csv = ROOT / "input" / ns / name / "ids.csv"
+    if ids_csv.exists():
+        n_slides = sum(1 for line in ids_csv.read_text().splitlines()[1:] if line.strip())
+        k = cfg.get("TRAINING", {}).get("num_k")
+        if k is not None and n_slides and k > n_slides:
+            print(f"{data}: num_k {k} -> {n_slides} (slides)")
+            cfg["TRAINING"]["num_k"] = n_slides
     cfg["DATA"]["data_dir"] = stp_data
     cfg["DATA"]["model_name"] = f"openmidnight_{tag}"
     cfg.setdefault("preprocess", {})
