@@ -12,34 +12,61 @@ exports as patch encoders and benchmarks them with the stock predictors. Everyth
 Features: CLS token, 1536-d, fp16, 224 px, ImageNet mean/std; same transforms as the other encoders.
 Loaded through `openmidnight_probe.loader` from the OpenMidnight repo (`$OPENMIDNIGHT_ROOT`).
 
-## Lung: train NCCHE Xenium (16 slides, 5-fold) -> test HEST LUAD (2 slides), 200 HVGs, Pearson
+## Results: five cancer types, LinearProb, Pearson over 200 HMHVGs
 
-Run 2026-10-05/06 on one A100 40 GB. Per-fold metrics collected by `scripts/collect_openmidnight_metrics.py`
-(upstream `BenchmarkResult.save()` wrote empty files); raw logs in `gs://wsi-brb/robustify/stp_bench/`.
+Internal = k-fold CV on the paper's training set; external = the paper's held-out set for that
+cancer type, trained on all internal folds. Runs 2026-10-05 (lung, 1x A100) and 2026-10-07/08
+(the rest, 8x RTX PRO 6000 via `run_openmidnight_queue.py` on the `queue` branch). Per-fold values
+from `scripts/collect_openmidnight_metrics.py`; raw logs and CSVs in `gs://wsi-brb/robustify/stp_bench/`.
 
-| encoder | LinearProb internal (mean, min–max over 5 folds) | LinearProb external LUAD |
-|---|---|---|
-| teacher_50000 | 0.588 (0.547–0.633) | 0.524 (0.494–0.554) |
-| teacher_300000 | 0.583 (0.543–0.632) | 0.578 (0.567–0.591) |
-| **template_300k** | 0.581 (0.532–0.632) | **0.627 (0.615–0.637)** |
+### In-distribution (internal CV; mean over folds)
 
-- In-distribution the three encoders are indistinguishable.
-- Under the platform/lab shift to HEST LUAD the ranking follows PathoROB robustness exactly, and the
-  fold ranges do not overlap: the robustified encoder's worst fold (0.615) beats the base encoder's
-  best (0.591), which beats the 50K export's best (0.554).
-- StFlow (teacher_300000: internal 0.475, external 0.553; template_300k: 0.276 / 0.332) diverged on
-  individual folds (min -0.03) with the template encoder. A predictor-side instability on raw 1536-d
-  features, not an encoder result; LinearProb on the same embeddings is the comparison above.
+| training set | folds | 50K | 300K | template_300k | paper's UNIv2 linear baseline |
+|---|---|---|---|---|---|
+| NCCHE-LUAD-Xenium | 5 | 0.588 | 0.583 | 0.581 | 0.586 |
+| HEST-CCRCC | 6 | 0.311 | 0.315 | 0.310 | ~0.31 |
+| SNU-GBM | 5 | 0.270 | 0.280 | 0.281 | ~0.27 |
+| WUSTL-BRCA | 5 | 0.349 | 0.357 | 0.352 | ~0.345 |
+| WUSTL-PDAC | 5 | 0.296 | 0.299 | 0.302 | ~0.30 |
+| HEST-PRAD | 2 | 0.377 | 0.364 | 0.377 | ~0.40 |
 
-Only one cancer type so far. Remaining natural pairs: wustl/BRCA -> hest/BRCA, snu/GBM -> hest/GBM,
-wustl/PDAC -> hest/PAAD, wustl/RCC -> hest/CCRCC, massey/TNBC -> hest/BRCA. Each is the same config
-copy plus `run_openmidnight.py --internal <ns/name> --external <ns/name>`. The runs are CPU-bound
-(per-spot h5 reads at ~6 batches/s with the GPU idle): rent cores, not GPUs, and run pairs in parallel.
+The three encoders are indistinguishable in-distribution, and all sit on the paper's UNIv2 linear
+baseline (read off its Fig. 2 panels; Xenium is the one quoted in text) except PRAD, ~0.03 under.
+
+### Out-of-distribution (external set; mean and fold range)
+
+| train -> test | 50K | 300K | template_300k | template - 300K |
+|---|---|---|---|---|
+| NCCHE-LUAD-Xenium -> HEST-LUAD | 0.524 (0.494-0.554) | 0.578 (0.567-0.591) | **0.627 (0.615-0.637)** | +0.049, fold ranges disjoint |
+| HEST-CCRCC -> WUSTL-RCC | 0.199 (0.173-0.236) | 0.177 (0.154-0.204) | **0.217 (0.204-0.232)** | +0.039, fold ranges disjoint |
+| WUSTL-PDAC -> HEST-PAAD | 0.236 (0.138-0.364) | 0.269 (0.126-0.355) | **0.300 (0.186-0.405)** | +0.031, overlapping |
+| SNU-GBM -> HEST-GBM | **0.266 (0.163-0.301)** | 0.204 (0.117-0.259) | 0.231 (0.152-0.289) | +0.026, overlapping |
+| WUSTL-BRCA -> Massey-TNBC | 0.257 (0.237-0.275) | **0.259 (0.245-0.274)** | 0.247 (0.222-0.261) | -0.012, overlapping |
+
+Reading: robustifying the 300K export (synthetic acquisition-shift fine-tune, 4K steps) leaves
+in-distribution prediction unchanged and improves transfer to the external cohort in four of five
+cancer types, by 0.03-0.05 Pearson, clearly in lung and kidney (every template fold above every
+base fold), within fold noise in pancreas and brain, and within noise the other way in breast.
+The 50K export, the most PathoROB-robust checkpoint of the original run, is not a better transfer
+encoder: worst in lung and pancreas, best in brain (3 external slides). PRAD has no public external
+set (MGB-PRAD is withheld).
+
+StFlow (lung only): teacher_300000 0.475 internal / 0.553 external; template_300k 0.276 / 0.332 with
+folds near zero. A predictor-side instability on raw 1536-d features, not an encoder result.
+
+Caveats: one run per cell (no seed repeats); external sets are 2-10 slides; Visium PCCs are low across
+the board, as in the paper. Two runs on the same encoder and data reproduce to four decimals.
 
 ## Reproduce
 
 ```bash
 export OPENMIDNIGHT_ROOT=$HOME/OpenMidnight OPENMIDNIGHT_CKPT_DIR=$HOME/checkpoints   # <tag>.pth per encoder
+# lung (single pair):
 .stpbench/bin/python run_openmidnight.py --tags teacher_300000 template_300k teacher_50000 --models LinearProb
+# the other pairs, all encoders, spread over GPUs (branch `queue`):
+.stpbench/bin/python run_openmidnight_queue.py --pairs wustl/BRCA:massey/TNBC snu/GBM:hest/GBM wustl/PDAC:hest/PAAD hest/CCRCC:wustl/RCC --concurrency 12 --gpus 0-7
+.stpbench/bin/python run_openmidnight_queue.py --pairs hest/PRAD:hest/PRAD --concurrency 3 --gpus 0-2
 .stpbench/bin/python scripts/collect_openmidnight_metrics.py
 ```
+Machine: 128 GB+ RAM (the gene-set step), many cores (the probes are CPU-bound), any GPU with
+kernels for its torch build. See OPENMIDNIGHT_SETUP.md.
